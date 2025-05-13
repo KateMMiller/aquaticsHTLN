@@ -12,7 +12,7 @@
 # count_df = data frame to append to tbl_Count which was compiled using compile_counts() function
 
 #---- Function that compiles squares records to append to tblSquares ----
-compile_squares <- function(filepath = "./data/", filename = NA, worksheet = "Squares", save = TRUE){
+compile_squares <- function(filepath = "./data/", filename = NA, worksheet = "Squares", save = FALSE){
   #---- Bug/error handling ----
   # add / to end of filepath if doesn't exist
   if(!grepl("/$", filepath)){filepath <- paste0(filepath, "/")}
@@ -30,19 +30,39 @@ compile_squares <- function(filepath = "./data/", filename = NA, worksheet = "Sq
   }
 
   #---- Prepare data for tbl_Squares ----
-  tblSquares <- readxl::read_xlsx(path = paste0(filepath, filename), sheet = worksheet) |> data.frame()
+  tblSquares <- tryCatch(readxl::read_xlsx(path = paste0(filepath, filename), sheet = worksheet) |> data.frame(),
+                         error = function(e){
+                           stop(paste0("Unable to open ", paste0(filepath, filename), ". Make sure spreadsheet is not currently open in Excel."))
+                         })
   dets <- as.POSIXct(round(Sys.time(), units = "sec"), format = "%Y-%m%-%d %H:%M:%S", tz = "UTC")
+  
   dets_frm <- as.POSIXct(dets, format = "%Y-%m-%d %H:%M", tz = "UTC")#tz = Sys.timezone())
   tblSquares$DETimeStamp <- dets_frm
-
+  
+  # Check for logical dates
+  curr_year <- format(Sys.Date(), "%Y")
+  season_check <- tblSquares |> dplyr::mutate(DEyear = format(DETimeStamp, "%Y")) |> 
+    dplyr::filter(DEyear < Season | Season > curr_year)
+  
+  error_tally <- data.frame(error = "Season entry greater than data entry timestamp or in the future", num_records = nrow(season_check))
+  
+  if(nrow(season_check) > 0){
+    assign("season_check", season_check, envir = .GlobalEnv)
+    warning(paste0(
+      "There's at least one 'Season' entry that is either greater than the data entry time stamp or is in the future.", 
+      "\n", "Run View(season_check) for more details."))}
+  
   # Check that there are no missing required fields
-  blank <- tblSquares[
+  squares_blank <- tblSquares[
     !complete.cases(tblSquares[,c("LocationID", "EventID", "Season", "RiffleNo", "Replicate", "PerSample", "DETimeStamp")]),]
 
-  if(nrow(blank) > 0){stop(paste0("At least one required value is missing (see above). Cannot append until record is fixed. "),
-                           " If there's more than 1 record, then there are multiple blanks.",
-                           "\n",
-                           paste0("\t", names(blank), " = ", blank, collapse = "\n"))}
+  error_tally <- rbind(error_tally, 
+                       data.frame(error = "Blanks in required Squares table", num_records = nrow(squares_blank)))
+  
+  if(nrow(squares_blank) > 0){
+    assign("squares_blank", squares_blank, envir = .GlobalEnv)
+    warning(paste0("At least one required value is missing (see above). Cannot append until record is fixed. ",
+                "\n", "Run View(squares_blank) for more details"))}
 
   #---- Write to file if save = T ----
   new_file = sub(".xlsx", "", filename)
@@ -53,6 +73,12 @@ compile_squares <- function(filepath = "./data/", filename = NA, worksheet = "Sq
                              row.names = F)
   }
 
+  errors <- error_tally |> dplyr::filter(num_records > 0)
+  
+  if(sum(error_tally$num_records) > 0){
+    stop("The following errors were detected in the Squares tab preventing data from being appended to the database. ", "\n", 
+         paste0("\t", "-", errors$error, " (n=", errors$num_records, ")", collapse = "\n"), "\n", 
+         "  See warnings below for more details", "\n\n")}
   #---- Return final dataset ----
   return(data.frame(tblSquares))
 }
@@ -60,7 +86,7 @@ compile_squares <- function(filepath = "./data/", filename = NA, worksheet = "Sq
 
 
 #---- Function that compiles count records to append to tblCount ----
-compile_counts <- function(filepath = "./data/", filename = NA, worksheet = "Count", save = TRUE){
+compile_counts <- function(filepath = "./data/", filename = NA, worksheet = "Count", save = FALSE){
 
   #---- Bug/error handling ----
   # add / to end of filepath if doesn't exist
@@ -85,8 +111,39 @@ compile_counts <- function(filepath = "./data/", filename = NA, worksheet = "Cou
 
   #---- Prepare data for tbl_Count ----
   # import spreadsheet, only including the specified tab
-  count_orig <- readxl::read_xlsx(path = paste0(filepath, filename), sheet = worksheet)
-
+  count_orig <- tryCatch(readxl::read_xlsx(path = paste0(filepath, filename), sheet = worksheet) |> data.frame(),
+                         error = function(e){
+                         stop(paste0("Unable to open ", paste0(filepath, filename), ". Make sure spreadsheet is not currently open in Excel."))
+                         })
+  
+  count_orig$RepCount <- gsub("", NA_character_, count_orig$RepCount)
+  count_orig$LargeRare <- gsub("", NA_character_, count_orig$LargeRare)
+  count_orig$RefCollection <- gsub("", NA_character_, count_orig$RefCollection)
+  
+  taxon_check <- count_orig |> dplyr::filter(!is.na(RepCount)) |> dplyr::filter(is.na(TaxonCode))
+  
+  error_tally <- data.frame(error = "Non-zero RepCount missing a TaxonCode", num_records = nrow(taxon_check))
+  
+  if(nrow(taxon_check) > 0){
+    assign("taxon_check", taxon_check, envir = .GlobalEnv)
+    warning(paste0("There is at least one row with a non-zero count that has a blank TaxonCode.",
+                "\n", "Run View(taxon_check) for more details."))}
+  
+  lr_check <- count_orig |> dplyr::filter(LargeRare == 0)
+  if(nrow(lr_check) > 0){
+    assign("lr_check", lr_check, envir = .GlobalEnv)
+    warning(paste0("There is at least one row a LargeRare recorded as 0 instead of -1 or blank.",
+                   "\n", "Run View(lr_check) for more details."))}
+  
+  rc_check <- count_orig |> dplyr::filter(RefCollection == 0)
+  if(nrow(rc_check) > 0){
+    assign("rc_check", rc_check, envir = .GlobalEnv)
+    warning(paste0("There is at least one row with a non-zero count that has a blank TaxonCode.",
+                   "\n", "Run View(rc_check) for more details."))}
+  
+  error_tally <- rbind(error_tally,
+                       data.frame(error = "LargeRare = 0", num_records = nrow(lr_check)),
+                       data.frame(error = "RefCollection = 0", num_records = nrow(rc_check)))
   # Setting numerics to integers to match database defs
   count_orig$Season <- as.integer(count_orig$Season)
   count_orig$RiffleNo <- as.integer(count_orig$RiffleNo)
@@ -101,6 +158,21 @@ compile_counts <- function(filepath = "./data/", filename = NA, worksheet = "Cou
   dets_frm <- as.POSIXct(dets, format = "%Y-%m-%d %H:%M", tz = "UTC")#tz = Sys.timezone())
   count_trim$DETimeStamp <- dets_frm
 
+  # Check for logical dates
+  curr_year <- format(Sys.Date(), "%Y")
+  season_check <- count_trim |> dplyr::mutate(DEyear = format(DETimeStamp, "%Y")) |> 
+    dplyr::filter(DEyear < Season | Season > curr_year)
+  
+  error_tally <- rbind(error_tally, 
+                  data.frame(error = "Season entry greater than data entry timestamp or in the future", 
+                             num_records = nrow(season_check)))
+  
+  if(nrow(season_check) > 0){
+    assign("season_check", season_check, envir = .GlobalEnv)
+    warning(paste0(
+      "There's at least one 'Season' entry that is either greater than the data entry time stamp or is in the future.", 
+      "Run View(season_check) data frame for more details."))}
+  
   ## Add PrevTaxonCode if it doesn't already exist in the data
   if(!all(names(count_trim) %in% c("PrevTaxonCode"))){count_trim$PrevTaxonCode <- NA_character_}
 
@@ -110,19 +182,20 @@ compile_counts <- function(filepath = "./data/", filename = NA, worksheet = "Cou
 
   # Check for duplicate species to combine, as database won't allow duplicate species within same riffle and replicate
   check_cols = c("LocationID", "EventID", "Season", "RiffleNo", "Replicate", "TaxonCode")
-  dup <- count_trim[,check_cols][duplicated(count_trim[,check_cols]), ]
-
-  if(nrow(dup) > 0){
-    warning(paste0("There are duplicate taxon codes within an individual riffle and replicate. Duplicates were summed in returned data frame. ",
-                   "\n",
-                   "Please check the following data to ensure the duplicates are not due to an error before appending to the database. ",
-                   "\n",
-                   " If there's more than 1 record, then there are multiple duplicates.",
-                   "\n",
-                   paste0("\t", names(dup), " = ", dup, collapse = "\n")))}
+  spp_dup <- count_trim[,check_cols][duplicated(count_trim[,check_cols]), ]
+  
+  error_tally <- rbind(error_tally,
+                       data.frame(error = "Duplicate species detected", num_records = nrow(spp_dup)))
+  
+  if(nrow(spp_dup) > 0){
+    assign("spp_dup", spp_dup, envir = .GlobalEnv)
+    warning(paste0("There are duplicate taxon codes within an individual riffle and replicate.",
+                   "\n","Please check that duplicates are not due to an error before appending to the database. ",
+                   "\n","Duplicates were summed in returned data frame.", 
+                   "\n","Run view(spp_dup) for more details."))}
 
   count_trim2 <-
-  if(nrow(dup) > 0){
+  if(nrow(spp_dup) > 0){
     count_trim |>
       dplyr::group_by(LocationID, EventID, Season, RiffleNo, Replicate, TaxonCode, LargeRare,
                                   Note, RefCollection, DETimeStamp, PrevTaxonCode) |>
@@ -136,6 +209,16 @@ compile_counts <- function(filepath = "./data/", filename = NA, worksheet = "Cou
 
   #---- QC results before saving ----
   # Check that number of records by taxa are the same between original and trimmed
+  count_orig$RefCollection[is.na(count_orig$RefCollection)] <- 0
+  count_orig$Replicate[is.na(count_orig$Replicate)] <- 0
+  count_orig$LargeRare[is.na(count_orig$LargeRare)] <- 0
+  count_orig$RepCount[is.na(count_orig$RepCount)] <- 0
+  
+  count_trim2$RefCollection[is.na(count_trim2$RefCollection)] <- 0
+  count_trim2$Replicate[is.na(count_trim2$Replicate)] <- 0
+  count_trim2$LargeRare[is.na(count_trim2$LargeRare)] <- 0
+  count_trim2$RepCount[is.na(count_trim2$RepCount)] <- 0
+  
   cnt_sum_or <- aggregate(RepCount ~ EventID + TaxonCode + RiffleNo + Replicate + RepCount,
                           data = count_orig, FUN = function(x){sum(x)})
   cnt_sum_tr <- aggregate(RepCount ~ EventID + TaxonCode + RiffleNo + Replicate + RepCount,
@@ -147,18 +230,24 @@ compile_counts <- function(filepath = "./data/", filename = NA, worksheet = "Cou
   # Error checking on trim
   if(nrow(cnt_check) > 0){
     assign("data_check", cnt_check, envir = .GlobalEnv)
-    stop(paste0("Trimming white space resulted in an error in the following taxa: ",
+    warning(paste0("Trimming white space resulted in an error in the following taxa: ",
            paste0(cnt_check$TaxonCode, collapse = ", "),
-           ". See *data_check* data frame in your workspace for issues."))}
+           ". Run View(data_check) for more details."))}
+  
+  error_tally <- rbind(error_tally,
+                       data.frame(error = "Issues resulting from trimming white space", num_records = nrow(cnt_check)))
 
   # Check that RepCount isn't blank
   miss_count <- count_trim2[is.na(count_trim2$RepCount),]
   if(nrow(miss_count) > 0){
     assign("miss_count", miss_count, envir = .GlobalEnv)
-    stop(paste0("There are ", nrow(miss_count),
-                " records with a missing RepCount. See *miss_count* in your workspace for issues."))
-  }
+    warning(paste0("There are ", nrow(miss_count), " records with a missing RepCount. ", 
+                "Counts can't be appended until blank counts are resolved",
+                "Run View(miss_count) for more details."))}
 
+  error_tally <- rbind(error_tally,
+                       data.frame(error = "TaxonCodes with missing RepCount", num_records = nrow(miss_count)))
+  
   #---- Write to file if save = T ----
   new_file = sub(".xlsx", "", filename)
   date_stamp = format(Sys.Date(), format = "%Y%m%d")
@@ -167,6 +256,14 @@ compile_counts <- function(filepath = "./data/", filename = NA, worksheet = "Cou
                              paste0(filepath, new_file, "_", "Count", "_", date_stamp, ".csv"),
                              row.names = F)}
 
+  errors <- error_tally |> dplyr::filter(num_records > 0)
+  errors2 <- errors |> dplyr::filter(!error %in% "Duplicate species detected")   # drop spp dups from stop 
+
+  if(sum(errors2$num_records) > 0){
+    stop("The following errors were detected in the Count tab preventing data from being appended to the database. ", "\n", 
+         paste0("\t", "-", errors$error, " (n=", errors$num_records, ")", collapse = "\n"), "\n", 
+         "  See warnings below for more details", "\n\n")}
+  
   #---- Return final dataset ----
   return(data.frame(count_final))
 }

@@ -3,7 +3,7 @@ source("./scripts/utils.R")
 
 #++++ Parameters to update/check every time you try to append: ++++
 path = "./data/" # Update to path for data to be exported to
-spreadsheet = "OZAR_JACKT03_2024_legit.xlsx"
+spreadsheet = "OZAR_JACKT03_2024_errors.xlsx"
 #spreadsheet = "./temp/OZAR_JACKt03_2024_Complete.xlsx" # missing a percent sampled in squares and PLAOGY is misspelled as PLANGY, so fails- good to test on.
 
 db_filename = "./data/HTLNInvert3.9.0 - Copy.accdb" # Update to path and name of the database to append to
