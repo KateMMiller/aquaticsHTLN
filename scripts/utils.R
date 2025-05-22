@@ -111,9 +111,13 @@ compile_counts <- function(filepath = "./data/", filename = NA, worksheet = "Cou
 
   #---- Prepare data for tbl_Count ----
   # import spreadsheet, only including the specified tab
-  count_orig <- tryCatch(readxl::read_xlsx(path = paste0(filepath, filename), sheet = worksheet) |> data.frame(),
+  count_orig <- tryCatch(readxl::read_xlsx(path = paste0(filepath, filename), sheet = worksheet,
+                                           col_types = c("text", "text", "numeric", "numeric", "text", 
+                                                         "text", "text", "numeric", "text", "text"),
+                                           na = c("")) |> data.frame(),
                          error = function(e){
-                         stop(paste0("Unable to open ", paste0(filepath, filename), ". Make sure spreadsheet is not currently open in Excel."))
+                         stop(paste0("Unable to open ", paste0(filepath, filename), 
+                                     ". Make sure spreadsheet is not currently open in Excel."))
                          })
   
   count_orig$RepCount <- gsub("", NA_character_, count_orig$RepCount)
