@@ -120,7 +120,7 @@ compile_counts <- function(filepath = "./data/", filename = NA, worksheet = "Cou
                                      ". Make sure spreadsheet is not currently open in Excel."))
                          })
   
-  count_orig$RepCount <- gsub("", NA_character_, count_orig$RepCount)
+  #count_orig$RepCount <- gsub("", NA_real_, count_orig$RepCount)
   count_orig$LargeRare <- gsub("", NA_character_, count_orig$LargeRare)
   count_orig$RefCollection <- gsub("", NA_character_, count_orig$RefCollection)
   
